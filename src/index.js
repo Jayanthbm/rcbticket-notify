@@ -3,7 +3,6 @@ const API_URL = 'https://rcbscaleapi.ticketgenie.in/ticket/eventlist/0';
 // ---- Config ----
 const TELEGRAM_USERS = ['gultoo24'];
 
-// 👉 Add event codes here after first alert to avoid duplicates
 const SKIP_EVENT_CODES = [1];
 
 // ---- Helpers ----
@@ -15,18 +14,25 @@ async function fetchEvents() {
 	return data.result || [];
 }
 
-// Filter valid events
+// Filter valid events (used for alerts)
 function getValidEvents(events) {
 	const now = new Date();
 
 	return events.filter((event) => {
 		const eventDate = new Date(event.event_Date);
 
-		return (
-			eventDate >= now && // future events
-			event.event_Button_Text !== 'SOLD OUT' && // not sold out
-			!SKIP_EVENT_CODES.includes(event.event_Code) // skip handled events
-		);
+		return eventDate >= now && event.event_Button_Text !== 'SOLD OUT' && !SKIP_EVENT_CODES.includes(event.event_Code);
+	});
+}
+
+// 🆕 Get all available tickets (NO skip logic)
+function getAvailableEvents(events) {
+	const now = new Date();
+
+	return events.filter((event) => {
+		const eventDate = new Date(event.event_Date);
+
+		return eventDate >= now && event.event_Button_Text !== 'SOLD OUT';
 	});
 }
 
@@ -58,7 +64,7 @@ async function notifyEvents(events) {
 
 // JSON response helper
 function jsonResponse(data, status = 200) {
-	return new Response(JSON.stringify(data), {
+	return new Response(JSON.stringify(data, null, 2), {
 		status,
 		headers: { 'Content-Type': 'application/json' },
 	});
@@ -71,22 +77,30 @@ export default {
 			const events = await fetchEvents();
 
 			const validEvents = getValidEvents(events);
+			const availableEvents = getAvailableEvents(events); // 🆕
 
-			console.log('Valid events:', validEvents.length);
+			console.log('Valid events (alerts):', validEvents.length);
+			console.log('Available events (all):', availableEvents.length);
 
+			// Send alerts
 			if (validEvents.length > 0) {
 				await notifyEvents(validEvents);
-
-				return jsonResponse({
-					status: 'sent',
-					count: validEvents.length,
-					skipped: SKIP_EVENT_CODES,
-				});
 			}
 
 			return jsonResponse({
-				status: 'no tickets',
+				status: validEvents.length > 0 ? 'sent' : 'no tickets',
+				alertCount: validEvents.length,
+				availableCount: availableEvents.length,
 				skipped: SKIP_EVENT_CODES,
+
+				// 🆕 New section
+				availableTickets: availableEvents.map((event) => ({
+					event_Code: event.event_Code,
+					event_Name: event.event_Name,
+					date: event.event_Display_Date,
+					price: event.event_Price_Range,
+					status: event.event_Button_Text,
+				})),
 			});
 		} catch (err) {
 			console.error(err);
