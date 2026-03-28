@@ -1,38 +1,41 @@
 const API_URL = 'https://rcbscaleapi.ticketgenie.in/ticket/eventlist/0';
 
 // ---- Config ----
-const TELEGRAM_USERS = ['gultoo24'];
+const TELEGRAM_USERS = ['gultoo24', 'Pp1234099'];
 
-const SKIP_EVENT_CODES = [1];
+// ---- Time Helper (IST) ----
+function getNowIST() {
+	return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+}
 
 // ---- Helpers ----
 
-// Fetch events from API
+// Fetch events
 async function fetchEvents() {
 	const res = await fetch(API_URL);
 	const data = await res.json();
 	return data.result || [];
 }
 
-// Filter valid events (used for alerts)
+// Filter valid events (BUY TICKETS only)
 function getValidEvents(events) {
-	const now = new Date();
+	const now = getNowIST();
 
 	return events.filter((event) => {
 		const eventDate = new Date(event.event_Date);
 
-		return eventDate >= now && event.event_Button_Text !== 'SOLD OUT' && !SKIP_EVENT_CODES.includes(event.event_Code);
+		return eventDate >= now && event.event_Button_Text === 'BUY TICKETS';
 	});
 }
 
-// 🆕 Get all available tickets (NO skip logic)
+// Available events (for response only)
 function getAvailableEvents(events) {
-	const now = new Date();
+	const now = getNowIST();
 
 	return events.filter((event) => {
 		const eventDate = new Date(event.event_Date);
 
-		return eventDate >= now && event.event_Button_Text !== 'SOLD OUT';
+		return eventDate >= now && event.event_Button_Text === 'BUY TICKETS';
 	});
 }
 
@@ -41,7 +44,7 @@ function buildMessage(event) {
 	return `🎟️ Tickets on Sale!\n` + `${event.event_Name}\n` + `${event.event_Display_Date}\n` + `${event.event_Price_Range}`;
 }
 
-// Send message via CallMeBot
+// Send Telegram
 async function sendTelegramMessage(users, message) {
 	const userString = users.join('|');
 
@@ -50,19 +53,80 @@ async function sendTelegramMessage(users, message) {
 	return fetch(url);
 }
 
-// Notify all events
-async function notifyEvents(events) {
-	for (const event of events) {
-		const message = buildMessage(event);
+// ---- D1 Logic ----
 
-		console.log('Sending alert for:', event.event_Name);
-		console.log('👉 Add this to SKIP_EVENT_CODES:', event.event_Code);
+// Check last notification
+async function shouldSendNotification(db, eventCode, username) {
+	const result = await db
+		.prepare(
+			`
+      SELECT notified_at
+      FROM notifications
+      WHERE event_code = ? AND notify_username = ?
+      ORDER BY notified_at DESC
+      LIMIT 1
+    `,
+		)
+		.bind(eventCode, username)
+		.first();
 
-		await sendTelegramMessage(TELEGRAM_USERS, message);
-	}
+	if (!result) return true;
+
+	const lastSent = new Date(result.notified_at);
+	const now = getNowIST();
+
+	const diffMs = now - lastSent;
+
+	const ONE_HOUR = 60 * 60 * 1000;
+
+	return diffMs >= ONE_HOUR;
 }
 
-// JSON response helper
+// Save notification
+async function saveNotification(db, eventCode, username) {
+	const now = getNowIST().toISOString();
+
+	await db
+		.prepare(
+			`
+      INSERT INTO notifications
+      (event_code, notified_at, created_at, notify_channel, notify_username)
+      VALUES (?, ?, ?, ?, ?)
+    `,
+		)
+		.bind(eventCode, now, now, 'telegram', username)
+		.run();
+}
+
+// Notify with DB control
+async function notifyEvents(events, env) {
+	let sentCount = 0;
+
+	for (const event of events) {
+		for (const user of TELEGRAM_USERS) {
+			const shouldSend = await shouldSendNotification(env.DB, event.event_Code, user);
+
+			if (!shouldSend) {
+				console.log(`⏭️ Skipped (rate limit): ${event.event_Name} -> ${user}`);
+				continue;
+			}
+
+			const message = buildMessage(event);
+
+			console.log(`📤 Sending: ${event.event_Name} -> ${user}`);
+
+			await sendTelegramMessage([user], message);
+
+			await saveNotification(env.DB, event.event_Code, user);
+
+			sentCount++;
+		}
+	}
+
+	return sentCount;
+}
+
+// JSON response
 function jsonResponse(data, status = 200) {
 	return new Response(JSON.stringify(data, null, 2), {
 		status,
@@ -77,23 +141,20 @@ export default {
 			const events = await fetchEvents();
 
 			const validEvents = getValidEvents(events);
-			const availableEvents = getAvailableEvents(events); // 🆕
+			const availableEvents = getAvailableEvents(events);
 
-			console.log('Valid events (alerts):', validEvents.length);
-			console.log('Available events (all):', availableEvents.length);
+			console.log('Valid events:', validEvents.length);
 
-			// Send alerts
+			let sentCount = 0;
+
 			if (validEvents.length > 0) {
-				await notifyEvents(validEvents);
+				sentCount = await notifyEvents(validEvents, env);
 			}
 
 			return jsonResponse({
-				status: validEvents.length > 0 ? 'sent' : 'no tickets',
-				alertCount: validEvents.length,
+				status: sentCount > 0 ? 'sent' : 'no tickets',
+				sentCount,
 				availableCount: availableEvents.length,
-				skipped: SKIP_EVENT_CODES,
-
-				// 🆕 New section
 				availableTickets: availableEvents.map((event) => ({
 					event_Code: event.event_Code,
 					event_Name: event.event_Name,

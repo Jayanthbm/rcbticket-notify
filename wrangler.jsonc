@@ -13,6 +13,14 @@
 	"upload_source_maps": true,
 	"compatibility_flags": [
 		"nodejs_compat"
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "rcb-tickets-notifier",
+			"database_id": "224a443d-9f55-483b-b889-20edfa5109e8",
+			"remote": true
+		}
 	]
 	/**
 	 * Smart Placement
