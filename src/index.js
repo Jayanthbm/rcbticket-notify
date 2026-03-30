@@ -138,12 +138,15 @@ function jsonResponse(data, status = 200) {
 export default {
 	async fetch(request, env, ctx) {
 		try {
+			console.log('Date', getNowIST(), getNowIST().toISOString());
 			const events = await fetchEvents();
+
+			if (events.length === 0) {
+				return jsonResponse({ status: 'no tickets' });
+			}
 
 			const validEvents = getValidEvents(events);
 			const availableEvents = getAvailableEvents(events);
-
-			console.log('Valid events:', validEvents.length);
 
 			let sentCount = 0;
 
