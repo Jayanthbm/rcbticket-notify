@@ -1,7 +1,7 @@
 const API_URL = 'https://rcbscaleapi.ticketgenie.in/ticket/eventlist/0';
 
 // ---- Config ----
-const TELEGRAM_USERS = ['gultoo24', 'Pp1234099'];
+const TELEGRAM_USERS = ['gultoo24', 'Pp1234099', 'janjankumar'];
 
 // ---- Time Helper (IST) ----
 function getNowIST() {
