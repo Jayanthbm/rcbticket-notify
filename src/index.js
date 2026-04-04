@@ -11,17 +11,53 @@ function getNowIST() {
 // ---- Helpers ----
 
 // Fetch events
+const PROXY_BASE = 'https://cf-cors-proxy.jayanthbharadwajm.workers.dev/?url=';
+
+const PROXY_API_KEY = 'vx5TKJtywTt8l3Y7tO90FD4RS5KnrPQ';
+
 async function fetchEvents() {
-	const res = await fetch(API_URL, {
-		headers: {
-			'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-			Accept: 'application/json, text/plain, */*',
-			'Accept-Language': 'en-US,en;q=0.9',
-			Referer: 'https://ticketgenie.in/',
-		},
-	});
-	const data = await res.json();
-	return data.result || [];
+	const headers = {
+		'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+		Accept: 'application/json, text/plain, */*',
+		'Accept-Language': 'en-US,en;q=0.9',
+		Referer: 'https://ticketgenie.in/',
+	};
+
+	try {
+		// 🔵 Primary request (direct)
+		const res = await fetch(API_URL, { headers });
+
+		if (!res.ok) {
+			throw new Error(`Primary failed: ${res.status}`);
+		}
+
+		const data = await res.json();
+		return data.result || [];
+	} catch (err) {
+		console.warn('Primary failed, switching to proxy:', err.message);
+
+		try {
+			// 🟡 Fallback via proxy
+			const proxyUrl = PROXY_BASE + encodeURIComponent(API_URL);
+
+			const res = await fetch(proxyUrl, {
+				headers: {
+					...headers,
+					'x-api-key': PROXY_API_KEY,
+				},
+			});
+
+			if (!res.ok) {
+				throw new Error(`Proxy failed: ${res.status}`);
+			}
+
+			const data = await res.json();
+			return data.result || [];
+		} catch (proxyErr) {
+			console.error('Proxy also failed:', proxyErr.message);
+			return []; // or throw if you want strict failure
+		}
+	}
 }
 
 // Filter valid events (BUY TICKETS only)
