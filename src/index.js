@@ -1,4 +1,4 @@
-const API_URL = 'https://rcbscaleapi.ticketgenie.in/ticket/eventlist/0';
+const API_URL = 'https://rcbscaleapi.ticketgenie.in/ticket/eventlist/O';
 
 // ---- Config ----
 const TELEGRAM_USERS = ['gultoo24', 'Pp1234099', 'janjankumar'];
@@ -17,15 +17,31 @@ const PROXY_API_KEY = 'vx5TKJtywTt8l3Y7tO90FD4RS5KnrPQ';
 
 async function fetchEvents() {
 	const headers = {
-		'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-		Accept: 'application/json, text/plain, */*',
-		'Accept-Language': 'en-US,en;q=0.9',
-		Referer: 'https://ticketgenie.in/',
+		accept: 'application/json, text/plain, */*',
+		'accept-language': 'en-IN,en;q=0.9',
+		'cache-control': 'no-cache',
+		pragma: 'no-cache',
+
+		origin: 'https://shop.royalchallengers.com',
+		referer: 'https://shop.royalchallengers.com/',
+
+		'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+
+		'sec-ch-ua': '"Google Chrome";v="147", "Not.A/Brand";v="8", "Chromium";v="147"',
+		'sec-ch-ua-mobile': '?0',
+		'sec-ch-ua-platform': '"macOS"',
+
+		'sec-fetch-dest': 'empty',
+		'sec-fetch-mode': 'cors',
+		'sec-fetch-site': 'cross-site',
 	};
 
 	try {
 		// 🔵 Primary request (direct)
-		const res = await fetch(API_URL, { headers });
+		const res = await fetch(API_URL, {
+			method: 'GET',
+			headers,
+		});
 
 		if (!res.ok) {
 			throw new Error(`Primary failed: ${res.status}`);
