@@ -43,36 +43,44 @@ async function fetchEvents() {
 			headers,
 		});
 
-		if (!res.ok) {
-			throw new Error(`Primary failed: ${res.status}`);
-		}
-
-		const data = await res.json();
-		return data.result || [];
-	} catch (err) {
-		console.warn('Primary failed, switching to proxy:', err.message);
-
-		try {
-			// 🟡 Fallback via proxy
-			const proxyUrl = PROXY_BASE + encodeURIComponent(API_URL);
-
-			const res = await fetch(proxyUrl, {
-				headers: {
-					...headers,
-					'x-api-key': PROXY_API_KEY,
-				},
-			});
-
-			if (!res.ok) {
-				throw new Error(`Proxy failed: ${res.status}`);
-			}
-
+		if (res.ok) {
 			const data = await res.json();
-			return data.result || [];
-		} catch (proxyErr) {
-			console.error('Proxy also failed:', proxyErr.message);
-			return []; // or throw if you want strict failure
+			return {
+				events: data.result || [],
+				finalStatus: res.status,
+			};
 		}
+		// ❌ Primary failed → try proxy
+		const proxyUrl = PROXY_BASE + encodeURIComponent(API_URL);
+
+		const proxyRes = await fetch(proxyUrl, {
+			headers: {
+				...headers,
+				'x-api-key': PROXY_API_KEY,
+			},
+		});
+
+		if (!proxyRes.ok) {
+			return {
+				events: [],
+				finalStatus: proxyRes.status,
+			};
+		}
+
+		const data = await proxyRes.json();
+
+		return {
+			events: data.result || [],
+			finalStatus: proxyRes.status, // 👈 FINAL STATUS
+		};
+	} catch (err) {
+		console.error('Fetch failed:', err.message);
+
+		return {
+			events: [],
+			finalStatus: 500,
+			error: err.message,
+		};
 	}
 }
 
@@ -129,16 +137,36 @@ async function shouldSendNotification(db, eventCode, username) {
 		.bind(eventCode, username)
 		.first();
 
+	// ✅ No previous message → send immediately
 	if (!result) return true;
 
 	const lastSent = new Date(result.notified_at);
 	const now = getNowIST();
 
 	const diffMs = now - lastSent;
+	const diffMinutes = diffMs / (60 * 1000);
 
-	const ONE_HOUR = 60 * 60 * 1000;
+	const hour = now.getHours(); // IST hour
 
-	return diffMs >= ONE_HOUR;
+	// ---- Default rule ----
+	let requiredMinutes = 60; // 1 hour
+
+	// ---- Special early morning rules (2 AM - 9 AM) ----
+	if (hour >= 2 && hour <= 9) {
+		const extraHours = hour + 2;
+		// 2AM → 4hrs, 3AM → 5hrs, ..., 9AM → 11hrs
+
+		requiredMinutes = extraHours * 60;
+
+		// Minute precision (your requirement like 2:01 → 4h1m)
+		requiredMinutes += now.getMinutes();
+	}
+
+	console.log(
+		`⏱️ Rate Check → Now: ${hour}:${now.getMinutes()} | Required: ${requiredMinutes} mins | Actual: ${Math.floor(diffMinutes)} mins`,
+	);
+
+	return diffMinutes >= requiredMinutes;
 }
 
 // Save notification
@@ -198,7 +226,19 @@ export default {
 	async fetch(request, env, ctx) {
 		try {
 			console.log('Date', getNowIST(), getNowIST().toISOString());
-			const events = await fetchEvents();
+			const { events, finalStatus } = await fetchEvents();
+
+			if (finalStatus !== 200) {
+				console.error(`❌ API failed with final status ${finalStatus}`);
+
+				return jsonResponse(
+					{
+						error: 'Fetch failed',
+						finalStatus,
+					},
+					500,
+				);
+			}
 
 			if (events.length === 0) {
 				return jsonResponse({ status: 'no tickets' });
